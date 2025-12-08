@@ -30,7 +30,7 @@ func NewHandler(authService *coreauth.Service, userService *coreuser.Service) *H
 // GET /auth/login
 func (h *Handler) Login(ctx *gin.Context) {
 	if h.authService == nil {
-		response.Error(ctx, http.StatusServiceUnavailable, "Auth0 authentication is not configured. Please configure AUTH0_DOMAIN, AUTH0_CLIENT_ID, AUTH0_CLIENT_SECRET, and AUTH0_CALLBACK_URL environment variables.")
+		response.Error(ctx, http.StatusServiceUnavailable, "OIDC authentication is not configured. Please configure OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, and OIDC_REDIRECT_URL environment variables.")
 		return
 	}
 
@@ -55,15 +55,15 @@ func (h *Handler) Login(ctx *gin.Context) {
 		return
 	}
 
-	// Redirect to Auth0 authorization URL
+	// Redirect to OIDC authorization URL
 	ctx.Redirect(http.StatusTemporaryRedirect, h.authService.GetAuthURLWithPKCE(state, codeChallenge))
 }
 
-// Callback handles the OAuth2 callback from Auth0.
+// Callback handles the OAuth2 callback from the OIDC provider.
 // GET /auth/callback
 func (h *Handler) Callback(ctx *gin.Context) {
 	if h.authService == nil {
-		response.Error(ctx, http.StatusServiceUnavailable, "Auth0 authentication is not configured. Please configure AUTH0_DOMAIN, AUTH0_CLIENT_ID, AUTH0_CLIENT_SECRET, and AUTH0_CALLBACK_URL environment variables.")
+		response.Error(ctx, http.StatusServiceUnavailable, "OIDC authentication is not configured. Please configure OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, and OIDC_REDIRECT_URL environment variables.")
 		return
 	}
 
@@ -89,7 +89,7 @@ func (h *Handler) Callback(ctx *gin.Context) {
 	}
 
 	// Verify the ID token
-	idToken, err := h.authService.VerifyIDToken(ctx.Request.Context(), token)
+	idToken, rawIDToken, err := h.authService.VerifyIDToken(ctx.Request.Context(), token)
 	if err != nil {
 		response.Error(ctx, http.StatusInternalServerError, "Failed to verify ID token")
 		return
@@ -102,16 +102,16 @@ func (h *Handler) Callback(ctx *gin.Context) {
 		return
 	}
 
-	// Get Auth0 subject identifier (unique user ID from Auth0)
-	auth0Sub, ok := profile["sub"].(string)
-	if !ok || auth0Sub == "" {
-		response.Error(ctx, http.StatusInternalServerError, "Invalid Auth0 token: missing sub claim")
+	// Get subject identifier (unique user ID from the OIDC provider)
+	oidcSub, ok := profile["sub"].(string)
+	if !ok || oidcSub == "" {
+		response.Error(ctx, http.StatusInternalServerError, "Invalid OIDC token: missing sub claim")
 		return
 	}
 
 	// Check if user is allowed to login (must exist in database and be active)
 	if h.userService != nil {
-		user, err := h.userService.ValidateAuth0Login(ctx.Request.Context(), auth0Sub)
+		user, err := h.userService.ValidateOIDCLogin(ctx.Request.Context(), oidcSub)
 		if err != nil {
 			if errors.Is(err, coreuser.ErrUserNotActive) {
 				// User exists but is not activated - pending approval
@@ -127,10 +127,10 @@ func (h *Handler) Callback(ctx *gin.Context) {
 					nickname, _ = profile["name"].(string)
 				}
 				if nickname == "" {
-					nickname = auth0Sub // fallback to sub as username
+					nickname = oidcSub // fallback to sub as username
 				}
 
-				_, isNew, createErr := h.userService.GetOrCreateAuth0User(ctx.Request.Context(), auth0Sub, nickname, email)
+				_, isNew, createErr := h.userService.GetOrCreateOIDCUser(ctx.Request.Context(), oidcSub, nickname, email)
 				if createErr != nil {
 					response.Error(ctx, http.StatusInternalServerError, "Failed to register user")
 					return
@@ -154,6 +154,7 @@ func (h *Handler) Callback(ctx *gin.Context) {
 
 	// Store tokens and profile in session
 	session.Set("access_token", token.AccessToken)
+	session.Set("id_token", rawIDToken)
 	session.Set("profile", profile)
 	if err := session.Save(); err != nil {
 		response.Error(ctx, http.StatusInternalServerError, "Failed to save session")
@@ -167,31 +168,40 @@ func (h *Handler) Callback(ctx *gin.Context) {
 // Logout handles user logout.
 // GET /auth/logout
 func (h *Handler) Logout(ctx *gin.Context) {
-	// Clear session
 	session := sessions.Default(ctx)
+	rawIDToken, _ := session.Get("id_token").(string)
+
+	// Clear session
 	session.Clear()
 	if err := session.Save(); err != nil {
 		response.Error(ctx, http.StatusInternalServerError, "Failed to clear session")
 		return
 	}
 
-	// If Auth0 is not configured, just redirect to home
+	// If OIDC is not configured, just redirect to home
 	if h.authService == nil {
 		ctx.Redirect(http.StatusTemporaryRedirect, "/")
 		return
 	}
 
-	// Build return URL
-	scheme := "http"
-	if ctx.Request.TLS != nil {
-		scheme = "https"
+	// Build return URL (prefer configured post-logout redirect)
+	returnToURL := h.authService.PostLogoutRedirect()
+	if returnToURL == "" {
+		scheme := "http"
+		if ctx.Request.TLS != nil {
+			scheme = "https"
+		}
+		returnToURL = scheme + "://" + ctx.Request.Host
 	}
-	returnToURL := scheme + "://" + ctx.Request.Host
 
-	// Get Auth0 logout URL
-	logoutURL, err := h.authService.GetLogoutURL(returnToURL)
+	// Get provider end-session URL (if configured)
+	logoutURL, ok, err := h.authService.GetEndSessionURL(returnToURL, rawIDToken)
 	if err != nil {
 		response.Error(ctx, http.StatusInternalServerError, "Failed to build logout URL")
+		return
+	}
+	if !ok {
+		ctx.Redirect(http.StatusTemporaryRedirect, returnToURL)
 		return
 	}
 

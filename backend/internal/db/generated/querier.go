@@ -35,8 +35,8 @@ type Querier interface {
 	CreateStation(ctx context.Context, arg CreateStationParams) (SupplyStation, error)
 	CreateSupplyNeed(ctx context.Context, arg CreateSupplyNeedParams) (SupplyNeed, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
-	// Create a new user from Auth0 authentication (inactive by default - requires admin approval)
-	CreateUserFromAuth0(ctx context.Context, arg CreateUserFromAuth0Params) (User, error)
+	// Create a new user from OIDC authentication (inactive by default - requires admin approval)
+	CreateUserFromOIDC(ctx context.Context, arg CreateUserFromOIDCParams) (User, error)
 	// Deactivate a user (admin only) - blocks login without deleting data
 	DeactivateUser(ctx context.Context, id int32) (User, error)
 	DeleteCheckin(ctx context.Context, id int32) error
@@ -52,8 +52,8 @@ type Querier interface {
 	DeleteUser(ctx context.Context, id int32) error
 	FindNearbyStations(ctx context.Context, arg FindNearbyStationsParams) ([]FindNearbyStationsRow, error)
 	FindNearbyVerifiedStations(ctx context.Context, arg FindNearbyVerifiedStationsParams) ([]FindNearbyVerifiedStationsRow, error)
-	// Find an active user by their Auth0 subject identifier (for login validation)
-	GetActiveUserByAuth0Sub(ctx context.Context, auth0Sub string) (User, error)
+	// Find an active user by their OIDC subject identifier (for login validation)
+	GetActiveUserByOIDCSub(ctx context.Context, oidcSub string) (User, error)
 	// internal/db/queries/audit.sql
 	// SQL queries for RBAC audit log operations (used by sqlc)
 	GetAuditLogByID(ctx context.Context, id int32) (RbacAuditLog, error)
@@ -87,12 +87,12 @@ type Querier interface {
 	GetStationByID(ctx context.Context, id int32) (SupplyStation, error)
 	// ==================== Supply Needs ====================
 	GetSupplyNeedByID(ctx context.Context, id int32) (SupplyNeed, error)
-	// Find a user by their Auth0 subject identifier
-	GetUserByAuth0Sub(ctx context.Context, auth0Sub string) (User, error)
 	GetUserByEmail(ctx context.Context, email pgtype.Text) (User, error)
 	// internal/db/queries/user.sql
 	// SQL queries for user operations (used by sqlc)
 	GetUserByID(ctx context.Context, id int32) (User, error)
+	// Find a user by their OIDC subject identifier
+	GetUserByOIDCSub(ctx context.Context, oidcSub string) (User, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
 	GetUserPermissions(ctx context.Context, id int32) ([]AppPermission, error)
 	// ==================== User Roles ====================
@@ -140,8 +140,8 @@ type Querier interface {
 	UpdateStation(ctx context.Context, arg UpdateStationParams) (SupplyStation, error)
 	UpdateSupplyNeed(ctx context.Context, arg UpdateSupplyNeedParams) (SupplyNeed, error)
 	UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error)
-	// Link an existing user to their Auth0 account
-	UpdateUserAuth0Sub(ctx context.Context, arg UpdateUserAuth0SubParams) (User, error)
+	// Link an existing user to their OIDC account
+	UpdateUserOIDCSub(ctx context.Context, arg UpdateUserOIDCSubParams) (User, error)
 	UpdateUserTrustPoints(ctx context.Context, arg UpdateUserTrustPointsParams) (User, error)
 }
 

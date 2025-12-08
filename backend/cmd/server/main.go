@@ -52,12 +52,12 @@ func main() {
 
 	// Initialize services
 	var authService *coreauth.Service
-	log.Printf("Initializing Auth0 service with domain: %s", cfg.Auth0.Domain)
-	authService, err = coreauth.NewService(&cfg.Auth0)
+	log.Printf("Initializing OIDC service with issuer: %s", cfg.OIDC.Issuer)
+	authService, err = coreauth.NewService(&cfg.OIDC)
 	if err != nil {
 		log.Fatalf("Failed to initialize auth service: %v", err)
 	}
-	log.Printf("Auth0 service initialized successfully")
+	log.Printf("OIDC service initialized successfully")
 
 	// Create service container with database pool
 	svc := core.NewContainer(authService, pool)

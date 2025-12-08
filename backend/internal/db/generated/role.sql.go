@@ -273,7 +273,7 @@ func (q *Queries) GetUserRoles(ctx context.Context, userID int32) ([]Role, error
 }
 
 const getUsersWithRole = `-- name: GetUsersWithRole :many
-SELECT u.id, u.auth0_sub, u.username, u.email, u.is_active, u.trust_points, u.created_at
+SELECT u.id, u.oidc_sub, u.username, u.email, u.is_active, u.trust_points, u.created_at
 FROM users u
 JOIN user_roles ur ON u.id = ur.user_id
 WHERE ur.role_id = $1
@@ -291,7 +291,7 @@ func (q *Queries) GetUsersWithRole(ctx context.Context, roleID int32) ([]User, e
 		var i User
 		if err := rows.Scan(
 			&i.ID,
-			&i.Auth0Sub,
+			&i.OidcSub,
 			&i.Username,
 			&i.Email,
 			&i.IsActive,

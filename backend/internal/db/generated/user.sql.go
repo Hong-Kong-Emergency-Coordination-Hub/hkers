@@ -12,7 +12,7 @@ import (
 )
 
 const activateUser = `-- name: ActivateUser :one
-UPDATE users SET is_active = TRUE WHERE id = $1 RETURNING id, auth0_sub, username, email, is_active, trust_points, created_at
+UPDATE users SET is_active = TRUE WHERE id = $1 RETURNING id, oidc_sub, username, email, is_active, trust_points, created_at
 `
 
 // Activate a user (admin only)
@@ -21,7 +21,7 @@ func (q *Queries) ActivateUser(ctx context.Context, id int32) (User, error) {
 	var i User
 	err := row.Scan(
 		&i.ID,
-		&i.Auth0Sub,
+		&i.OidcSub,
 		&i.Username,
 		&i.Email,
 		&i.IsActive,
@@ -66,13 +66,13 @@ func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
 }
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (auth0_sub, username, email, trust_points)
+INSERT INTO users (oidc_sub, username, email, trust_points)
 VALUES ($1, $2, $3, $4)
-RETURNING id, auth0_sub, username, email, is_active, trust_points, created_at
+RETURNING id, oidc_sub, username, email, is_active, trust_points, created_at
 `
 
 type CreateUserParams struct {
-	Auth0Sub    string      `json:"auth0_sub"`
+	OidcSub     string      `json:"oidc_sub"`
 	Username    string      `json:"username"`
 	Email       pgtype.Text `json:"email"`
 	TrustPoints pgtype.Int4 `json:"trust_points"`
@@ -80,7 +80,7 @@ type CreateUserParams struct {
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
 	row := q.db.QueryRow(ctx, createUser,
-		arg.Auth0Sub,
+		arg.OidcSub,
 		arg.Username,
 		arg.Email,
 		arg.TrustPoints,
@@ -88,7 +88,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	var i User
 	err := row.Scan(
 		&i.ID,
-		&i.Auth0Sub,
+		&i.OidcSub,
 		&i.Username,
 		&i.Email,
 		&i.IsActive,
@@ -98,25 +98,25 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	return i, err
 }
 
-const createUserFromAuth0 = `-- name: CreateUserFromAuth0 :one
-INSERT INTO users (auth0_sub, username, email, is_active, trust_points)
+const createUserFromOIDC = `-- name: CreateUserFromOIDC :one
+INSERT INTO users (oidc_sub, username, email, is_active, trust_points)
 VALUES ($1, $2, $3, FALSE, 0)
-RETURNING id, auth0_sub, username, email, is_active, trust_points, created_at
+RETURNING id, oidc_sub, username, email, is_active, trust_points, created_at
 `
 
-type CreateUserFromAuth0Params struct {
-	Auth0Sub string      `json:"auth0_sub"`
+type CreateUserFromOIDCParams struct {
+	OidcSub  string      `json:"oidc_sub"`
 	Username string      `json:"username"`
 	Email    pgtype.Text `json:"email"`
 }
 
-// Create a new user from Auth0 authentication (inactive by default - requires admin approval)
-func (q *Queries) CreateUserFromAuth0(ctx context.Context, arg CreateUserFromAuth0Params) (User, error) {
-	row := q.db.QueryRow(ctx, createUserFromAuth0, arg.Auth0Sub, arg.Username, arg.Email)
+// Create a new user from OIDC authentication (inactive by default - requires admin approval)
+func (q *Queries) CreateUserFromOIDC(ctx context.Context, arg CreateUserFromOIDCParams) (User, error) {
+	row := q.db.QueryRow(ctx, createUserFromOIDC, arg.OidcSub, arg.Username, arg.Email)
 	var i User
 	err := row.Scan(
 		&i.ID,
-		&i.Auth0Sub,
+		&i.OidcSub,
 		&i.Username,
 		&i.Email,
 		&i.IsActive,
@@ -127,7 +127,7 @@ func (q *Queries) CreateUserFromAuth0(ctx context.Context, arg CreateUserFromAut
 }
 
 const deactivateUser = `-- name: DeactivateUser :one
-UPDATE users SET is_active = FALSE WHERE id = $1 RETURNING id, auth0_sub, username, email, is_active, trust_points, created_at
+UPDATE users SET is_active = FALSE WHERE id = $1 RETURNING id, oidc_sub, username, email, is_active, trust_points, created_at
 `
 
 // Deactivate a user (admin only) - blocks login without deleting data
@@ -136,7 +136,7 @@ func (q *Queries) DeactivateUser(ctx context.Context, id int32) (User, error) {
 	var i User
 	err := row.Scan(
 		&i.ID,
-		&i.Auth0Sub,
+		&i.OidcSub,
 		&i.Username,
 		&i.Email,
 		&i.IsActive,
@@ -155,37 +155,17 @@ func (q *Queries) DeleteUser(ctx context.Context, id int32) error {
 	return err
 }
 
-const getActiveUserByAuth0Sub = `-- name: GetActiveUserByAuth0Sub :one
-SELECT id, auth0_sub, username, email, is_active, trust_points, created_at FROM users WHERE auth0_sub = $1 AND is_active = TRUE LIMIT 1
+const getActiveUserByOIDCSub = `-- name: GetActiveUserByOIDCSub :one
+SELECT id, oidc_sub, username, email, is_active, trust_points, created_at FROM users WHERE oidc_sub = $1 AND is_active = TRUE LIMIT 1
 `
 
-// Find an active user by their Auth0 subject identifier (for login validation)
-func (q *Queries) GetActiveUserByAuth0Sub(ctx context.Context, auth0Sub string) (User, error) {
-	row := q.db.QueryRow(ctx, getActiveUserByAuth0Sub, auth0Sub)
+// Find an active user by their OIDC subject identifier (for login validation)
+func (q *Queries) GetActiveUserByOIDCSub(ctx context.Context, oidcSub string) (User, error) {
+	row := q.db.QueryRow(ctx, getActiveUserByOIDCSub, oidcSub)
 	var i User
 	err := row.Scan(
 		&i.ID,
-		&i.Auth0Sub,
-		&i.Username,
-		&i.Email,
-		&i.IsActive,
-		&i.TrustPoints,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
-const getUserByAuth0Sub = `-- name: GetUserByAuth0Sub :one
-SELECT id, auth0_sub, username, email, is_active, trust_points, created_at FROM users WHERE auth0_sub = $1 LIMIT 1
-`
-
-// Find a user by their Auth0 subject identifier
-func (q *Queries) GetUserByAuth0Sub(ctx context.Context, auth0Sub string) (User, error) {
-	row := q.db.QueryRow(ctx, getUserByAuth0Sub, auth0Sub)
-	var i User
-	err := row.Scan(
-		&i.ID,
-		&i.Auth0Sub,
+		&i.OidcSub,
 		&i.Username,
 		&i.Email,
 		&i.IsActive,
@@ -196,7 +176,7 @@ func (q *Queries) GetUserByAuth0Sub(ctx context.Context, auth0Sub string) (User,
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, auth0_sub, username, email, is_active, trust_points, created_at FROM users WHERE email = $1 LIMIT 1
+SELECT id, oidc_sub, username, email, is_active, trust_points, created_at FROM users WHERE email = $1 LIMIT 1
 `
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email pgtype.Text) (User, error) {
@@ -204,7 +184,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email pgtype.Text) (User, 
 	var i User
 	err := row.Scan(
 		&i.ID,
-		&i.Auth0Sub,
+		&i.OidcSub,
 		&i.Username,
 		&i.Email,
 		&i.IsActive,
@@ -216,7 +196,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email pgtype.Text) (User, 
 
 const getUserByID = `-- name: GetUserByID :one
 
-SELECT id, auth0_sub, username, email, is_active, trust_points, created_at FROM users WHERE id = $1 LIMIT 1
+SELECT id, oidc_sub, username, email, is_active, trust_points, created_at FROM users WHERE id = $1 LIMIT 1
 `
 
 // internal/db/queries/user.sql
@@ -226,7 +206,27 @@ func (q *Queries) GetUserByID(ctx context.Context, id int32) (User, error) {
 	var i User
 	err := row.Scan(
 		&i.ID,
-		&i.Auth0Sub,
+		&i.OidcSub,
+		&i.Username,
+		&i.Email,
+		&i.IsActive,
+		&i.TrustPoints,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getUserByOIDCSub = `-- name: GetUserByOIDCSub :one
+SELECT id, oidc_sub, username, email, is_active, trust_points, created_at FROM users WHERE oidc_sub = $1 LIMIT 1
+`
+
+// Find a user by their OIDC subject identifier
+func (q *Queries) GetUserByOIDCSub(ctx context.Context, oidcSub string) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByOIDCSub, oidcSub)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.OidcSub,
 		&i.Username,
 		&i.Email,
 		&i.IsActive,
@@ -237,7 +237,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id int32) (User, error) {
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, auth0_sub, username, email, is_active, trust_points, created_at FROM users WHERE username = $1 LIMIT 1
+SELECT id, oidc_sub, username, email, is_active, trust_points, created_at FROM users WHERE username = $1 LIMIT 1
 `
 
 func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User, error) {
@@ -245,7 +245,7 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 	var i User
 	err := row.Scan(
 		&i.ID,
-		&i.Auth0Sub,
+		&i.OidcSub,
 		&i.Username,
 		&i.Email,
 		&i.IsActive,
@@ -286,7 +286,7 @@ func (q *Queries) GetUserPermissions(ctx context.Context, id int32) ([]AppPermis
 
 const getUserWithRoles = `-- name: GetUserWithRoles :many
 SELECT 
-    u.id, u.auth0_sub, u.username, u.email, u.is_active, u.trust_points, u.created_at,
+    u.id, u.oidc_sub, u.username, u.email, u.is_active, u.trust_points, u.created_at,
     r.id as role_id,
     r.name as role_name,
     r.description as role_description
@@ -298,7 +298,7 @@ WHERE u.id = $1
 
 type GetUserWithRolesRow struct {
 	ID              int32              `json:"id"`
-	Auth0Sub        string             `json:"auth0_sub"`
+	OidcSub         string             `json:"oidc_sub"`
 	Username        string             `json:"username"`
 	Email           pgtype.Text        `json:"email"`
 	IsActive        pgtype.Bool        `json:"is_active"`
@@ -320,7 +320,7 @@ func (q *Queries) GetUserWithRoles(ctx context.Context, id int32) ([]GetUserWith
 		var i GetUserWithRolesRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.Auth0Sub,
+			&i.OidcSub,
 			&i.Username,
 			&i.Email,
 			&i.IsActive,
@@ -341,7 +341,7 @@ func (q *Queries) GetUserWithRoles(ctx context.Context, id int32) ([]GetUserWith
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, auth0_sub, username, email, is_active, trust_points, created_at FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2
+SELECT id, oidc_sub, username, email, is_active, trust_points, created_at FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2
 `
 
 type ListUsersParams struct {
@@ -360,7 +360,7 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 		var i User
 		if err := rows.Scan(
 			&i.ID,
-			&i.Auth0Sub,
+			&i.OidcSub,
 			&i.Username,
 			&i.Email,
 			&i.IsActive,
@@ -381,7 +381,7 @@ const updateUser = `-- name: UpdateUser :one
 UPDATE users
 SET username = $2, email = $3
 WHERE id = $1
-RETURNING id, auth0_sub, username, email, is_active, trust_points, created_at
+RETURNING id, oidc_sub, username, email, is_active, trust_points, created_at
 `
 
 type UpdateUserParams struct {
@@ -395,7 +395,7 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 	var i User
 	err := row.Scan(
 		&i.ID,
-		&i.Auth0Sub,
+		&i.OidcSub,
 		&i.Username,
 		&i.Email,
 		&i.IsActive,
@@ -405,22 +405,22 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 	return i, err
 }
 
-const updateUserAuth0Sub = `-- name: UpdateUserAuth0Sub :one
-UPDATE users SET auth0_sub = $2 WHERE id = $1 RETURNING id, auth0_sub, username, email, is_active, trust_points, created_at
+const updateUserOIDCSub = `-- name: UpdateUserOIDCSub :one
+UPDATE users SET oidc_sub = $2 WHERE id = $1 RETURNING id, oidc_sub, username, email, is_active, trust_points, created_at
 `
 
-type UpdateUserAuth0SubParams struct {
-	ID       int32  `json:"id"`
-	Auth0Sub string `json:"auth0_sub"`
+type UpdateUserOIDCSubParams struct {
+	ID      int32  `json:"id"`
+	OidcSub string `json:"oidc_sub"`
 }
 
-// Link an existing user to their Auth0 account
-func (q *Queries) UpdateUserAuth0Sub(ctx context.Context, arg UpdateUserAuth0SubParams) (User, error) {
-	row := q.db.QueryRow(ctx, updateUserAuth0Sub, arg.ID, arg.Auth0Sub)
+// Link an existing user to their OIDC account
+func (q *Queries) UpdateUserOIDCSub(ctx context.Context, arg UpdateUserOIDCSubParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserOIDCSub, arg.ID, arg.OidcSub)
 	var i User
 	err := row.Scan(
 		&i.ID,
-		&i.Auth0Sub,
+		&i.OidcSub,
 		&i.Username,
 		&i.Email,
 		&i.IsActive,
@@ -434,7 +434,7 @@ const updateUserTrustPoints = `-- name: UpdateUserTrustPoints :one
 UPDATE users
 SET trust_points = trust_points + $2
 WHERE id = $1
-RETURNING id, auth0_sub, username, email, is_active, trust_points, created_at
+RETURNING id, oidc_sub, username, email, is_active, trust_points, created_at
 `
 
 type UpdateUserTrustPointsParams struct {
@@ -447,7 +447,7 @@ func (q *Queries) UpdateUserTrustPoints(ctx context.Context, arg UpdateUserTrust
 	var i User
 	err := row.Scan(
 		&i.ID,
-		&i.Auth0Sub,
+		&i.OidcSub,
 		&i.Username,
 		&i.Email,
 		&i.IsActive,

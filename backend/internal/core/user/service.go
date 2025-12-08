@@ -28,13 +28,13 @@ func NewService(pool *pgxpool.Pool) *Service {
 	}
 }
 
-// ValidateAuth0Login checks if an Auth0 user is allowed to login.
+// ValidateOIDCLogin checks if an OIDC user is allowed to login.
 // Returns the user if they exist and are active, otherwise returns an error.
-func (s *Service) ValidateAuth0Login(ctx context.Context, auth0Sub string) (*db.User, error) {
-	user, err := s.queries.GetActiveUserByAuth0Sub(ctx, auth0Sub)
+func (s *Service) ValidateOIDCLogin(ctx context.Context, oidcSub string) (*db.User, error) {
+	user, err := s.queries.GetActiveUserByOIDCSub(ctx, oidcSub)
 	if err != nil {
 		// Check if they exist but are inactive
-		existingUser, checkErr := s.queries.GetUserByAuth0Sub(ctx, auth0Sub)
+		existingUser, checkErr := s.queries.GetUserByOIDCSub(ctx, oidcSub)
 		if checkErr == nil && existingUser.ID > 0 {
 			// User exists but is not active
 			return nil, ErrUserNotActive
@@ -45,19 +45,19 @@ func (s *Service) ValidateAuth0Login(ctx context.Context, auth0Sub string) (*db.
 	return &user, nil
 }
 
-// GetOrCreateAuth0User gets an existing user by Auth0 sub, or creates a new inactive user.
+// GetOrCreateOIDCUser gets an existing user by OIDC sub, or creates a new inactive user.
 // New users are created with is_active=false and require admin approval.
-func (s *Service) GetOrCreateAuth0User(ctx context.Context, auth0Sub, username, email string) (*db.User, bool, error) {
+func (s *Service) GetOrCreateOIDCUser(ctx context.Context, oidcSub, username, email string) (*db.User, bool, error) {
 	// First, try to get existing user
-	existingUser, err := s.queries.GetUserByAuth0Sub(ctx, auth0Sub)
+	existingUser, err := s.queries.GetUserByOIDCSub(ctx, oidcSub)
 	if err == nil {
 		// User exists
 		return &existingUser, false, nil
 	}
 
 	// User doesn't exist, create new inactive user
-	newUser, err := s.queries.CreateUserFromAuth0(ctx, db.CreateUserFromAuth0Params{
-		Auth0Sub: auth0Sub,
+	newUser, err := s.queries.CreateUserFromOIDC(ctx, db.CreateUserFromOIDCParams{
+		OidcSub:  oidcSub,
 		Username: username,
 		Email:    pgtype.Text{String: email, Valid: email != ""},
 	})

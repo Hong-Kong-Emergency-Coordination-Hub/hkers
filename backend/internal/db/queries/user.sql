@@ -17,7 +17,7 @@ SELECT * FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2;
 SELECT COUNT(*) FROM users;
 
 -- name: CreateUser :one
-INSERT INTO users (auth0_sub, username, email, trust_points)
+INSERT INTO users (oidc_sub, username, email, trust_points)
 VALUES ($1, $2, $3, $4)
 RETURNING *;
 
@@ -65,17 +65,17 @@ SELECT EXISTS (
     WHERE u.id = $1 AND p.name = $2
 ) AS has_permission;
 
--- name: GetUserByAuth0Sub :one
--- Find a user by their Auth0 subject identifier
-SELECT * FROM users WHERE auth0_sub = $1 LIMIT 1;
+-- name: GetUserByOIDCSub :one
+-- Find a user by their OIDC subject identifier
+SELECT * FROM users WHERE oidc_sub = $1 LIMIT 1;
 
--- name: GetActiveUserByAuth0Sub :one
--- Find an active user by their Auth0 subject identifier (for login validation)
-SELECT * FROM users WHERE auth0_sub = $1 AND is_active = TRUE LIMIT 1;
+-- name: GetActiveUserByOIDCSub :one
+-- Find an active user by their OIDC subject identifier (for login validation)
+SELECT * FROM users WHERE oidc_sub = $1 AND is_active = TRUE LIMIT 1;
 
--- name: CreateUserFromAuth0 :one
--- Create a new user from Auth0 authentication (inactive by default - requires admin approval)
-INSERT INTO users (auth0_sub, username, email, is_active, trust_points)
+-- name: CreateUserFromOIDC :one
+-- Create a new user from OIDC authentication (inactive by default - requires admin approval)
+INSERT INTO users (oidc_sub, username, email, is_active, trust_points)
 VALUES ($1, $2, $3, FALSE, 0)
 RETURNING *;
 
@@ -87,6 +87,6 @@ UPDATE users SET is_active = TRUE WHERE id = $1 RETURNING *;
 -- Deactivate a user (admin only) - blocks login without deleting data
 UPDATE users SET is_active = FALSE WHERE id = $1 RETURNING *;
 
--- name: UpdateUserAuth0Sub :one
--- Link an existing user to their Auth0 account
-UPDATE users SET auth0_sub = $2 WHERE id = $1 RETURNING *;
+-- name: UpdateUserOIDCSub :one
+-- Link an existing user to their OIDC account
+UPDATE users SET oidc_sub = $2 WHERE id = $1 RETURNING *;

@@ -19,7 +19,7 @@ type Config struct {
 	Server        ServerConfig
 	Database      DatabaseConfig
 	Redis         RedisConfig
-	Auth0         Auth0Config
+	OIDC          OIDCConfig
 	CORS          CORSConfig
 	SessionSecret string
 }
@@ -70,23 +70,26 @@ type ServerConfig struct {
 	Port string
 }
 
-// Auth0Config holds Auth0-related configuration.
-type Auth0Config struct {
-	Domain       string
-	ClientID     string
-	ClientSecret string
-	CallbackURL  string
+// OIDCConfig holds OpenID Connect configuration.
+type OIDCConfig struct {
+	Issuer                string
+	ClientID              string
+	ClientSecret          string
+	RedirectURL           string
+	Scopes                []string
+	EndSessionURL         string
+	PostLogoutRedirectURL string
 }
 
 // CORSConfig holds CORS-related configuration.
 type CORSConfig struct {
-	AllowOrigins      []string
-	AllowAllOrigins   bool
-	AllowMethods      []string
-	AllowHeaders      []string
-	ExposeHeaders     []string
-	AllowCredentials  bool
-	MaxAge            int
+	AllowOrigins     []string
+	AllowAllOrigins  bool
+	AllowMethods     []string
+	AllowHeaders     []string
+	ExposeHeaders    []string
+	AllowCredentials bool
+	MaxAge           int
 }
 
 // Load reads configuration from environment variables.
@@ -110,25 +113,34 @@ func Load() (*Config, error) {
 		sessionSecret = "default-insecure-secret-change-in-production"
 	}
 
-	auth0Domain := os.Getenv("AUTH0_DOMAIN")
-	auth0ClientID := os.Getenv("AUTH0_CLIENT_ID")
-	auth0ClientSecret := os.Getenv("AUTH0_CLIENT_SECRET")
-	auth0CallbackURL := os.Getenv("AUTH0_CALLBACK_URL")
+	oidcIssuer := os.Getenv("OIDC_ISSUER")
+	oidcClientID := os.Getenv("OIDC_CLIENT_ID")
+	oidcClientSecret := os.Getenv("OIDC_CLIENT_SECRET")
+	oidcRedirectURL := os.Getenv("OIDC_REDIRECT_URL")
+	oidcScopes := strings.TrimSpace(os.Getenv("OIDC_SCOPES"))
+	if oidcScopes == "" {
+		oidcScopes = "openid,profile,email"
+	}
+	rawScopes := strings.Split(oidcScopes, ",")
+	for i := range rawScopes {
+		rawScopes[i] = strings.TrimSpace(rawScopes[i])
+	}
+	endSessionURL := strings.TrimSpace(os.Getenv("OIDC_END_SESSION_URL"))
+	postLogoutRedirect := strings.TrimSpace(os.Getenv("OIDC_POST_LOGOUT_REDIRECT_URL"))
 
-	// Validate Auth0 configuration if any Auth0 env var is set
-	// Auth0 is required for authentication
-	if auth0Domain != "" || auth0ClientID != "" || auth0ClientSecret != "" || auth0CallbackURL != "" {
-		if auth0Domain == "" {
-			return nil, errors.New("AUTH0_DOMAIN is required when using Auth0 authentication. If not using Auth0, leave all AUTH0_* variables unset")
+	// Validate OIDC configuration if any OIDC env var is set (authentication required)
+	if oidcIssuer != "" || oidcClientID != "" || oidcClientSecret != "" || oidcRedirectURL != "" {
+		if oidcIssuer == "" {
+			return nil, errors.New("OIDC_ISSUER is required when using OIDC authentication. If not using OIDC, leave all OIDC_* variables unset")
 		}
-		if auth0ClientID == "" {
-			return nil, errors.New("AUTH0_CLIENT_ID is required when using Auth0 authentication. If not using Auth0, leave all AUTH0_* variables unset")
+		if oidcClientID == "" {
+			return nil, errors.New("OIDC_CLIENT_ID is required when using OIDC authentication. If not using OIDC, leave all OIDC_* variables unset")
 		}
-		if auth0ClientSecret == "" {
-			return nil, errors.New("AUTH0_CLIENT_SECRET is required when using Auth0 authentication. If not using Auth0, leave all AUTH0_* variables unset")
+		if oidcClientSecret == "" {
+			return nil, errors.New("OIDC_CLIENT_SECRET is required when using OIDC authentication. If not using OIDC, leave all OIDC_* variables unset")
 		}
-		if auth0CallbackURL == "" {
-			return nil, errors.New("AUTH0_CALLBACK_URL is required when using Auth0 authentication. If not using Auth0, leave all AUTH0_* variables unset")
+		if oidcRedirectURL == "" {
+			return nil, errors.New("OIDC_REDIRECT_URL is required when using OIDC authentication. If not using OIDC, leave all OIDC_* variables unset")
 		}
 	}
 
@@ -161,11 +173,14 @@ func Load() (*Config, error) {
 		},
 		Database: dbConfig,
 		Redis:    redisConfig,
-		Auth0: Auth0Config{
-			Domain:       auth0Domain,
-			ClientID:     auth0ClientID,
-			ClientSecret: auth0ClientSecret,
-			CallbackURL:  auth0CallbackURL,
+		OIDC: OIDCConfig{
+			Issuer:                oidcIssuer,
+			ClientID:              oidcClientID,
+			ClientSecret:          oidcClientSecret,
+			RedirectURL:           oidcRedirectURL,
+			Scopes:                rawScopes,
+			EndSessionURL:         endSessionURL,
+			PostLogoutRedirectURL: postLogoutRedirect,
 		},
 		CORS:          corsConfig,
 		SessionSecret: sessionSecret,
@@ -176,7 +191,7 @@ func Load() (*Config, error) {
 func loadCORSConfig() CORSConfig {
 	// Allow all origins by default (can be restricted via CORS_ALLOW_ORIGINS)
 	allowAllOrigins := getEnv("CORS_ALLOW_ALL_ORIGINS", "true") == "true"
-	
+
 	var allowOrigins []string
 	if !allowAllOrigins {
 		originsStr := getEnv("CORS_ALLOW_ORIGINS", "")

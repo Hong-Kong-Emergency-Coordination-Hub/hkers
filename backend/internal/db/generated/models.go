@@ -207,7 +207,7 @@ type SupplyStation struct {
 
 type User struct {
 	ID          int32              `json:"id"`
-	Auth0Sub    string             `json:"auth0_sub"`
+	OidcSub     string             `json:"oidc_sub"`
 	Username    string             `json:"username"`
 	Email       pgtype.Text        `json:"email"`
 	IsActive    pgtype.Bool        `json:"is_active"`

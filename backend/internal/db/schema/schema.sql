@@ -80,7 +80,7 @@ CREATE TABLE role_permissions (
 -- Trust points are used to adjust verification thresholds for supply stations they register.
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
-    auth0_sub VARCHAR(255) UNIQUE NOT NULL,  -- Auth0 subject identifier (sub claim from ID token)
+    oidc_sub VARCHAR(255) UNIQUE NOT NULL,  -- OIDC subject identifier (sub claim from ID token)
     username VARCHAR(255) UNIQUE NOT NULL,
     email VARCHAR(255) UNIQUE,
     is_active BOOLEAN DEFAULT FALSE,  -- Must be TRUE for user to access the app

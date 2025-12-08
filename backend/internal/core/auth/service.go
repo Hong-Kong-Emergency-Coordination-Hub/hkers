@@ -15,31 +15,35 @@ import (
 	"hkers-backend/config"
 )
 
-// Service handles authentication logic with Auth0.
+// Service handles authentication logic with a generic OIDC provider.
 type Service struct {
-	provider *oidc.Provider
-	config   oauth2.Config
-	domain   string
-	clientID string
+	provider      *oidc.Provider
+	config        oauth2.Config
+	issuer        string
+	clientID      string
+	endSessionURL string
+	postLogoutURL string
 }
 
-// NewService creates a new Auth0 authentication service instance.
-func NewService(cfg *config.Auth0Config) (*Service, error) {
+// NewService creates a new OIDC authentication service instance.
+func NewService(cfg *config.OIDCConfig) (*Service, error) {
 	// Validate required configuration
-	if cfg.Domain == "" {
-		return nil, errors.New("Auth0 domain is required but not configured. Set AUTH0_DOMAIN environment variable")
+	required := []struct {
+		value string
+		err   string
+	}{
+		{cfg.Issuer, "OIDC issuer is required but not configured. Set OIDC_ISSUER environment variable"},
+		{cfg.ClientID, "OIDC client ID is required but not configured. Set OIDC_CLIENT_ID environment variable"},
+		{cfg.ClientSecret, "OIDC client secret is required but not configured. Set OIDC_CLIENT_SECRET environment variable"},
+		{cfg.RedirectURL, "OIDC redirect URL is required but not configured. Set OIDC_REDIRECT_URL environment variable"},
 	}
-	if cfg.ClientID == "" {
-		return nil, errors.New("Auth0 client ID is required but not configured. Set AUTH0_CLIENT_ID environment variable")
-	}
-	if cfg.ClientSecret == "" {
-		return nil, errors.New("Auth0 client secret is required but not configured. Set AUTH0_CLIENT_SECRET environment variable")
-	}
-	if cfg.CallbackURL == "" {
-		return nil, errors.New("Auth0 callback URL is required but not configured. Set AUTH0_CALLBACK_URL environment variable")
+	for _, item := range required {
+		if item.value == "" {
+			return nil, errors.New(item.err)
+		}
 	}
 
-	issuerURL := "https://" + cfg.Domain + "/"
+	issuerURL := cfg.Issuer
 
 	// Create context with timeout to prevent hanging
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -47,22 +51,29 @@ func NewService(cfg *config.Auth0Config) (*Service, error) {
 
 	provider, err := oidc.NewProvider(ctx, issuerURL)
 	if err != nil {
-		return nil, errors.New("failed to initialize OIDC provider: " + err.Error() + " (issuer URL: " + issuerURL + "). Check that AUTH0_DOMAIN is correct and accessible.")
+		return nil, errors.New("failed to initialize OIDC provider: " + err.Error() + " (issuer URL: " + issuerURL + "). Check that OIDC_ISSUER is correct and accessible.")
+	}
+
+	scopes := cfg.Scopes
+	if len(scopes) == 0 {
+		scopes = []string{oidc.ScopeOpenID, "profile", "email"}
 	}
 
 	oauthConfig := oauth2.Config{
 		ClientID:     cfg.ClientID,
 		ClientSecret: cfg.ClientSecret,
-		RedirectURL:  cfg.CallbackURL,
+		RedirectURL:  cfg.RedirectURL,
 		Endpoint:     provider.Endpoint(),
-		Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
+		Scopes:       scopes,
 	}
 
 	return &Service{
-		provider: provider,
-		config:   oauthConfig,
-		domain:   cfg.Domain,
-		clientID: cfg.ClientID,
+		provider:      provider,
+		config:        oauthConfig,
+		issuer:        cfg.Issuer,
+		clientID:      cfg.ClientID,
+		endSessionURL: cfg.EndSessionURL,
+		postLogoutURL: cfg.PostLogoutRedirectURL,
 	}, nil
 }
 
@@ -89,12 +100,12 @@ func (s *Service) GeneratePKCE() (verifier string, challenge string, err error) 
 	return verifier, challenge, nil
 }
 
-// GetAuthURL returns the Auth0 authorization URL.
+// GetAuthURL returns the OIDC authorization URL.
 func (s *Service) GetAuthURL(state string) string {
 	return s.config.AuthCodeURL(state)
 }
 
-// GetAuthURLWithPKCE returns the Auth0 authorization URL including PKCE params.
+// GetAuthURLWithPKCE returns the OIDC authorization URL including PKCE params.
 func (s *Service) GetAuthURLWithPKCE(state, codeChallenge string) string {
 	return s.config.AuthCodeURL(
 		state,
@@ -114,32 +125,48 @@ func (s *Service) ExchangeCodeWithPKCE(ctx context.Context, code, codeVerifier s
 }
 
 // VerifyIDToken verifies that an oauth2.Token contains a valid ID token.
-func (s *Service) VerifyIDToken(ctx context.Context, token *oauth2.Token) (*oidc.IDToken, error) {
+// Returns both the parsed token and the raw ID token string for downstream use.
+func (s *Service) VerifyIDToken(ctx context.Context, token *oauth2.Token) (*oidc.IDToken, string, error) {
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
-		return nil, errors.New("no id_token field in oauth2 token")
+		return nil, "", errors.New("no id_token field in oauth2 token")
 	}
 
 	oidcConfig := &oidc.Config{
 		ClientID: s.clientID,
 	}
 
-	return s.provider.Verifier(oidcConfig).Verify(ctx, rawIDToken)
+	idTok, err := s.provider.Verifier(oidcConfig).Verify(ctx, rawIDToken)
+	return idTok, rawIDToken, err
 }
 
-// GetLogoutURL returns the Auth0 logout URL.
-func (s *Service) GetLogoutURL(returnToURL string) (string, error) {
-	logoutURL, err := url.Parse("https://" + s.domain + "/v2/logout")
+// GetEndSessionURL returns an OIDC end-session URL (if configured).
+// The boolean indicates whether an end-session endpoint is available.
+func (s *Service) GetEndSessionURL(returnToURL, idTokenHint string) (string, bool, error) {
+	if s.endSessionURL == "" {
+		return "", false, nil
+	}
+
+	logoutURL, err := url.Parse(s.endSessionURL)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 
 	parameters := url.Values{}
-	parameters.Add("returnTo", returnToURL)
-	parameters.Add("client_id", s.clientID)
+	if returnToURL != "" {
+		parameters.Add("post_logout_redirect_uri", returnToURL)
+	}
+	if idTokenHint != "" {
+		parameters.Add("id_token_hint", idTokenHint)
+	}
 	logoutURL.RawQuery = parameters.Encode()
 
-	return logoutURL.String(), nil
+	return logoutURL.String(), true, nil
+}
+
+// PostLogoutRedirect returns the configured default post-logout redirect URL (if any).
+func (s *Service) PostLogoutRedirect() string {
+	return s.postLogoutURL
 }
 
 // ExtractClaims extracts claims from an ID token into a map.
