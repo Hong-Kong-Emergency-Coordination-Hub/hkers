@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-contrib/cors"
+	redigo "github.com/gomodule/redigo/redis"
 	"github.com/joho/godotenv"
 )
 
@@ -67,15 +68,6 @@ func (r *RedisConfig) GetAddr() string {
 	return r.Host + ":" + r.Port
 }
 
-// GetNetwork returns the network protocol for Redis connections.
-// Returns "rediss" for TLS-enabled connections, "tcp" otherwise.
-func (r *RedisConfig) GetNetwork() string {
-	if r.TLSEnabled {
-		return "rediss" // rediss = redis + TLS
-	}
-	return "tcp"
-}
-
 // GetTLSConfig returns a TLS configuration when TLS is enabled, otherwise nil.
 func (r *RedisConfig) GetTLSConfig() *tls.Config {
 	if !r.TLSEnabled {
@@ -84,6 +76,35 @@ func (r *RedisConfig) GetTLSConfig() *tls.Config {
 
 	return &tls.Config{
 		InsecureSkipVerify: r.TLSInsecureSkipVerify,
+	}
+}
+
+// NewRedisPool creates a redigo connection pool with TLS support if enabled.
+func (r *RedisConfig) NewRedisPool() *redigo.Pool {
+	return &redigo.Pool{
+		MaxIdle:     10,
+		IdleTimeout: 240 * time.Second,
+		Dial: func() (redigo.Conn, error) {
+			opts := []redigo.DialOption{
+				redigo.DialPassword(r.Password),
+			}
+
+			if r.TLSEnabled {
+				opts = append(opts,
+					redigo.DialTLSConfig(r.GetTLSConfig()),
+					redigo.DialUseTLS(true),
+				)
+			}
+
+			return redigo.Dial("tcp", r.GetAddr(), opts...)
+		},
+		TestOnBorrow: func(c redigo.Conn, t time.Time) error {
+			if time.Since(t) < time.Minute {
+				return nil
+			}
+			_, err := c.Do("PING")
+			return err
+		},
 	}
 }
 
