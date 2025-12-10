@@ -114,11 +114,6 @@ func (s *Service) GetAuthURLWithPKCE(state, codeChallenge string) string {
 	)
 }
 
-// ExchangeCode exchanges an authorization code for tokens.
-func (s *Service) ExchangeCode(ctx context.Context, code string) (*oauth2.Token, error) {
-	return s.config.Exchange(ctx, code)
-}
-
 // ExchangeCodeWithPKCE exchanges a code using the provided PKCE verifier.
 func (s *Service) ExchangeCodeWithPKCE(ctx context.Context, code, codeVerifier string) (*oauth2.Token, error) {
 	return s.config.Exchange(ctx, code, oauth2.SetAuthURLParam("code_verifier", codeVerifier))
