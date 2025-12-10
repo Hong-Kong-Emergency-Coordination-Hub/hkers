@@ -67,6 +67,15 @@ func (r *RedisConfig) GetAddr() string {
 	return r.Host + ":" + r.Port
 }
 
+// GetNetwork returns the network protocol for Redis connections.
+// Returns "rediss" for TLS-enabled connections, "tcp" otherwise.
+func (r *RedisConfig) GetNetwork() string {
+	if r.TLSEnabled {
+		return "rediss" // rediss = redis + TLS
+	}
+	return "tcp"
+}
+
 // GetTLSConfig returns a TLS configuration when TLS is enabled, otherwise nil.
 func (r *RedisConfig) GetTLSConfig() *tls.Config {
 	if !r.TLSEnabled {

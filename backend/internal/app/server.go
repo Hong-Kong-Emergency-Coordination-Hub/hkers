@@ -23,7 +23,7 @@ func NewRouter(cfg *config.Config, svc *core.Container) (*gin.Engine, error) {
 	router.Use(cors.New(cfg.CORS.GetCORSConfig()))
 
 	// Session middleware using Redis
-	store, err := redis.NewStore(10, "tcp", cfg.Redis.GetAddr(), "", cfg.Redis.Password, []byte(cfg.SessionSecret))
+	store, err := redis.NewStore(10, cfg.Redis.GetNetwork(), cfg.Redis.GetAddr(), cfg.Redis.Password, "", []byte(cfg.SessionSecret))
 	if err != nil {
 		return nil, fmt.Errorf("create Redis session store: %w", err)
 	}
